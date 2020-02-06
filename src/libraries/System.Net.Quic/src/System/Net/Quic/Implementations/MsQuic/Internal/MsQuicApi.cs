@@ -5,9 +5,11 @@
 using System.IO;
 using System.Net.Security;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
+using static System.Net.Quic.Implementations.MsQuic.Internal.MsQuicNativeMethods;
 
 namespace System.Net.Quic.Implementations.MsQuic.Internal
 {
@@ -227,6 +229,7 @@ namespace System.Net.Quic.Implementations.MsQuic.Internal
                 buf);
         }
 
+        // TODO put this into separate files based on platform
         public async ValueTask<MsQuicSecurityConfig> CreateSecurityConfig(X509Certificate certificate)
         {
             MsQuicSecurityConfig secConfig = null;
@@ -234,13 +237,46 @@ namespace System.Net.Quic.Implementations.MsQuic.Internal
             uint secConfigCreateStatus = MsQuicStatusCodes.InternalError;
             uint createConfigStatus;
 
+            // Based off https://github.com/dotnet/runtime/blob/4f9ae42d861fcb4be2fcd5d3d55d5f227d30e723/src/libraries/Common/src/System/Net/Security/Unix/SafeFreeSslCredentials.cs#L57-L83
+            // TODO handle cert validation
+            SafeEvpPKeyHandle certKeyHandle = null;
+            using (RSAOpenSsl rsa = (RSAOpenSsl)((X509Certificate2)certificate).GetRSAPrivateKey())
+            {
+                if (rsa != null)
+                {
+                    certKeyHandle = rsa.DuplicateKeyHandle();
+                }
+            }
+
+            if (certKeyHandle == null)
+            {
+                using (ECDsaOpenSsl ecdsa = (ECDsaOpenSsl)((X509Certificate2)certificate).GetECDsaPrivateKey())
+                {
+                    if (ecdsa != null)
+                    {
+                        certKeyHandle = ecdsa.DuplicateKeyHandle();
+                    }
+                }
+            }
+
+            OpenSslParams param = new OpenSslParams
+            {
+                Cert = certificate.Handle,
+                PrivateKey = certKeyHandle.DangerousGetHandle()
+            };
+
+            IntPtr unmanagedAddr = Marshal.AllocHGlobal(Marshal.SizeOf(param));
+            Marshal.StructureToPtr(param, unmanagedAddr, false);
+
+            var handle = GCHandle.Alloc(param, GCHandleType.Pinned);
+
             // If no certificate is provided, provide a null one.
             if (certificate != null)
             {
                 createConfigStatus = SecConfigCreateDelegate(
                     _registrationContext,
                     (uint)QUIC_SEC_CONFIG_FLAG.CERT_CONTEXT,
-                    certificate.Handle,
+                    unmanagedAddr,
                     null,
                     IntPtr.Zero,
                     SecCfgCreateCallbackHandler);
@@ -271,6 +307,8 @@ namespace System.Net.Quic.Implementations.MsQuic.Internal
             }
 
             await tcs.Task.ConfigureAwait(false);
+
+            Marshal.FreeHGlobal(unmanagedAddr);
 
             QuicExceptionHelpers.ThrowIfFailed(
                 secConfigCreateStatus,
