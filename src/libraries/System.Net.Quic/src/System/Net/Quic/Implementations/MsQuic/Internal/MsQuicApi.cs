@@ -239,31 +239,38 @@ namespace System.Net.Quic.Implementations.MsQuic.Internal
 
             // Based off https://github.com/dotnet/runtime/blob/4f9ae42d861fcb4be2fcd5d3d55d5f227d30e723/src/libraries/Common/src/System/Net/Security/Unix/SafeFreeSslCredentials.cs#L57-L83
             // TODO handle cert validation
+            
             SafeEvpPKeyHandle certKeyHandle = null;
-            using (RSAOpenSsl rsa = (RSAOpenSsl)((X509Certificate2)certificate).GetRSAPrivateKey())
+            X509Certificate2 cert2 = (X509Certificate2)certificate;
+            using (RSAOpenSsl rsa = (RSAOpenSsl)(cert2).GetRSAPrivateKey())
             {
                 if (rsa != null)
                 {
+                    System.Console.WriteLine("rsa handle");
                     certKeyHandle = rsa.DuplicateKeyHandle();
                 }
             }
 
             if (certKeyHandle == null)
             {
-                using (ECDsaOpenSsl ecdsa = (ECDsaOpenSsl)((X509Certificate2)certificate).GetECDsaPrivateKey())
+                using (ECDsaOpenSsl ecdsa = (ECDsaOpenSsl)(cert2).GetECDsaPrivateKey())
                 {
                     if (ecdsa != null)
                     {
+                        System.Console.WriteLine("ecd handle");
                         certKeyHandle = ecdsa.DuplicateKeyHandle();
                     }
                 }
             }
 
+            System.Console.WriteLine(certificate.GetCertHashString());
             OpenSslParams param = new OpenSslParams
             {
-                Cert = certificate.Handle,
+                Cert = cert2.Handle,
                 PrivateKey = certKeyHandle.DangerousGetHandle()
             };
+
+            System.Console.WriteLine($"{param.Cert} {param.PrivateKey}");
 
             IntPtr unmanagedAddr = Marshal.AllocHGlobal(Marshal.SizeOf(param));
             Marshal.StructureToPtr(param, unmanagedAddr, false);

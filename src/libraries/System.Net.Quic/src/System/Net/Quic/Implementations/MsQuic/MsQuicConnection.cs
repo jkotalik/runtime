@@ -87,7 +87,14 @@ namespace System.Net.Quic.Implementations.MsQuic
 
         internal async ValueTask SetSecurityConfigForConnection(X509Certificate cert)
         {
-            _securityConfig = await MsQuicApi.Api.CreateSecurityConfig(cert);
+            System.Console.WriteLine("Creating security config");
+            try {
+                _securityConfig = await MsQuicApi.Api.CreateSecurityConfig(cert);
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine(ex.Message);
+            }
             // TODO this isn't being set correctly
             MsQuicParameterHelpers.SetSecurityConfig(MsQuicApi.Api, _ptr, (uint)QUIC_PARAM_LEVEL.CONNECTION, (uint)QUIC_PARAM_CONN.SEC_CONFIG, _securityConfig.NativeObjPtr);
         }
